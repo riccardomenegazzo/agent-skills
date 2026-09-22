@@ -119,7 +119,10 @@ func isCloudFormation(node map[string]any) bool {
 	if !ok || len(resources) == 0 {
 		return false
 	}
-	for _, raw := range resources {
+	for logicalID, raw := range resources {
+		if strings.HasPrefix(logicalID, "Fn::ForEach::") {
+			return true
+		}
 		resource, ok := raw.(map[string]any)
 		if !ok {
 			continue

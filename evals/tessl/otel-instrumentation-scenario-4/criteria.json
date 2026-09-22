@@ -1,5 +1,5 @@
 {
-  "context": "Tests whether an agent correctly applies the AWS Lambda OpenTelemetry platform rule across ZIP and container-image functions without inventing layer versions, mixing distributions, or committing credentials.",
+  "context": "Tests whether an agent correctly applies the AWS Lambda OpenTelemetry platform rule across ZIP and container-image functions without inventing layer versions, mixing distributions, duplicating Collector pipeline configuration, or committing credentials.",
   "type": "weighted_checklist",
   "checklist": [
     {
@@ -38,8 +38,8 @@
       "max_score": 7
     },
     {
-      "name": "Collector export is coherent",
-      "description": "collector.yaml receives local OTLP telemetry and exports through an OTLP-capable exporter using project/deployment placeholders for the remote endpoint and authorization; the configuration does not assume an unrelated AWS telemetry backend.",
+      "name": "Collector ownership boundary is preserved",
+      "description": "The deployment wires the packaged Collector configuration URI, but does not generate or duplicate collector.yaml; it states that the separately owned Collector configuration must be authored with the otel-collector guidance and checked against the Lambda extension's supported components.",
       "max_score": 12
     },
     {

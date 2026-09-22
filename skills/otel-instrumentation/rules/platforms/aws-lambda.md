@@ -13,7 +13,8 @@ tags:
 # AWS Lambda OpenTelemetry layers
 
 Use this rule when an application runs on AWS Lambda and the deployment change includes OpenTelemetry instrumentation or Lambda layers.
-Keep application code and function-deployment changes in this skill; Collector pipeline internals belong in the `otel-collector` skill unless the Collector itself is shipped as the OpenTelemetry Lambda extension layer.
+Keep application code and function-deployment changes in this skill.
+When the deployment uses a Collector extension layer, configure the layer and its configuration URI here, but author the referenced Collector YAML with the `otel-collector` skill.
 
 Do not copy a layer ARN or version from this file.
 Resolve the current layer from the authoritative publisher for the function's region, architecture, runtime, and selected distribution, then pin the exact resolved ARN in the deployment.
@@ -23,7 +24,7 @@ Resolve the current layer from the authoritative publisher for the function's re
 Follow these steps in order and stop when a branch says to stop.
 
 1. Inspect the function package type in CloudFormation, SAM, CDK, Terraform, or the deployment configuration.
-   If the function uses `PackageType: Image`, do not add `Layers`: AWS Lambda layers are available only to `.zip` functions.
+   If the function uses `PackageType: Image`, do not add `Layers`: [AWS Lambda layers](https://docs.aws.amazon.com/lambda/latest/dg/chapter-layers.html) are available only to `.zip` functions.
    Package the SDK, auto-instrumentation, and any required Lambda extension into the container image instead, then follow the language SDK rule.
 2. For a `.zip` function, preserve an existing instrumentation family.
    If the deployment already uses ADOT, CloudWatch Application Signals, or an AWS-managed ADOT layer, continue with ADOT.
@@ -46,18 +47,18 @@ Follow these steps in order and stop when a branch says to stop.
 
 ## Upstream OpenTelemetry Lambda layers
 
-The upstream `open-telemetry/opentelemetry-lambda` project publishes 2 layer families designed to work together: a language-specific layer and a Collector extension layer.
+The upstream [`open-telemetry/opentelemetry-lambda`](https://github.com/open-telemetry/opentelemetry-lambda) project publishes 2 layer families designed to work together: a language-specific layer and a Collector extension layer.
 The language-specific layer initializes runtime instrumentation, while the Collector layer runs a stripped-down OpenTelemetry Collector as a Lambda extension.
 
-Before selecting a language layer, read the current upstream `Extension Layer Language Support` section.
+Before selecting a language layer, read the current upstream [`Extension Layer Language Support`](https://github.com/open-telemetry/opentelemetry-lambda#extension-layer-language-support) section.
 If the runtime is listed under “Additional language tooling not currently supported,” do not fabricate a layer ARN; use the language SDK rule and the runtime's supported Lambda instrumentation path instead.
 
-Resolve current ARNs from the upstream repository's release information.
+Resolve current ARNs from the upstream repository's [release information](https://github.com/open-telemetry/opentelemetry-lambda/releases).
 The upstream project publishes ARN patterns and release-specific versions, but this skill intentionally does not freeze those versions.
 
 ### Upstream Node.js ZIP example
 
-For the upstream Node.js layer, the project documentation uses `AWS_LAMBDA_EXEC_WRAPPER=/opt/otel-handler`.
+For the upstream Node.js layer, the [runtime documentation](https://github.com/open-telemetry/opentelemetry-lambda/tree/main/nodejs) uses `AWS_LAMBDA_EXEC_WRAPPER=/opt/otel-handler`.
 Re-check the runtime README when resolving the layer because the wrapper is part of the layer contract, not a universal OpenTelemetry Lambda constant.
 
 <!-- eval:cloudformation -->
@@ -92,43 +93,16 @@ Resources:
 Treat `OTelLanguageLayerArn` and `OTelCollectorLayerArn` as deployment inputs whose values are exact, reviewed layer-version ARNs.
 Resolve those values from the upstream release for the target region and architecture rather than copying an ARN from another region.
 
-### Custom Collector export
+### Collector configuration handoff
 
 The upstream Collector extension reads a custom Collector configuration from the URI in `OPENTELEMETRY_COLLECTOR_CONFIG_URI`.
 A local file in the function package can use `/var/task/collector.yaml`; HTTP and S3 URIs are also supported by the upstream extension.
 
-Keep credentials out of the committed configuration file.
-Resolve `<OTLP_ENDPOINT>` from deployment configuration, and inject `<AUTHORIZATION_HEADER>` through the project's secret-delivery mechanism rather than committing the resolved credential.
+Do not duplicate receivers, processors, exporters, or pipelines in this skill.
+Author the referenced file with the `otel-collector` guidance for [pipelines](../../../otel-collector/rules/pipelines.md) and [exporters](../../../otel-collector/rules/exporters.md), keeping endpoints and credentials in the project's deployment and secret-delivery mechanisms.
 
-<!-- eval:collector-config -->
-```yaml
-receivers:
-  otlp:
-    protocols:
-      grpc:
-        endpoint: 127.0.0.1:4317
-      http:
-        endpoint: 127.0.0.1:4318
-
-processors:
-  batch: {}
-
-exporters:
-  otlphttp:
-    endpoint: <OTLP_ENDPOINT>
-    headers:
-      Authorization: <AUTHORIZATION_HEADER>
-
-service:
-  pipelines:
-    traces:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [otlphttp]
-```
-
-Do not add Collector components merely because they exist in `otelcol-contrib`.
-The Lambda extension is a stripped-down distribution, so confirm every receiver, processor, exporter, connector, or extension against the current upstream `collector/lambdacomponents/default.go` before using it.
+The Lambda extension is a stripped-down distribution, so a general `otelcol-contrib` configuration may reference unavailable components.
+Before deploying the referenced configuration, verify every component against the extension's current [`collector/lambdacomponents/default.go`](https://github.com/open-telemetry/opentelemetry-lambda/blob/main/collector/lambdacomponents/default.go).
 
 ## AWS Distro for OpenTelemetry
 
@@ -136,7 +110,8 @@ Use AWS Distro for OpenTelemetry when the repository already uses ADOT or when t
 Resolve the managed layer ARN from the current ADOT Lambda documentation for the exact runtime, architecture, and region.
 
 Distinguish the current optimized ADOT Lambda layers from the legacy ADOT layers that embed a Collector.
-The current optimized/Application Signals documentation uses `AWS_LAMBDA_EXEC_WRAPPER=/opt/otel-instrument` and can export to a custom OTLP endpoint without adding the legacy embedded Collector path.
+The current [optimized/Application Signals documentation](https://aws-otel.github.io/docs/getting-started/lambda/) uses `AWS_LAMBDA_EXEC_WRAPPER=/opt/otel-instrument` and documents custom OTLP export for traces without adding the legacy embedded Collector path.
+Verify metrics and logs separately against the documentation for the selected layer instead of generalizing the traces behavior to every signal.
 Older runtime-specific ADOT pages document different wrapper paths, including `/opt/otel-handler` and Java handler-specific variants.
 Do not copy a wrapper from a legacy page into a current optimized layer, or vice versa; resolve the wrapper from the documentation for the exact layer generation and runtime being deployed.
 
@@ -149,7 +124,7 @@ Use the legacy embedded-Collector ADOT path only when its Collector-based behavi
 
 ## Container-image functions
 
-AWS Lambda does not apply Lambda layers to functions deployed from container images.
+AWS Lambda does not apply Lambda layers to functions deployed from [container images](https://docs.aws.amazon.com/lambda/latest/dg/images-create.html).
 When `PackageType: Image` is present, keep `Layers` absent and install the required OpenTelemetry runtime dependencies and extensions in the image.
 
 <!-- eval:bad -->

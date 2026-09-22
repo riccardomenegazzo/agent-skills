@@ -14,14 +14,14 @@ The team initially suggested attaching the same Lambda layers to it, but the dep
 
 The OTLP endpoint and authorization value are managed outside source control.
 Do not put a real credential or a made-up production credential into any generated file.
+The platform team owns the Collector pipeline configuration separately, so wire its packaged location into the ZIP function but do not generate or duplicate `collector.yaml` in this task.
 
 ## Output specification
 
 Produce the following files:
 
 1. **`template.yaml`** — an AWS SAM template showing the deployment changes for both functions.
-2. **`collector.yaml`** — the Collector configuration used by the ZIP function's OpenTelemetry Lambda Collector extension.
-3. **`IMAGE_FUNCTION.md`** — concise implementation guidance for instrumenting the container-image function without changing its package type.
-4. **`VALIDATION.md`** — a post-deployment checklist covering functional behavior, telemetry correctness, duplicate initialization, and cold-start impact.
+2. **`IMAGE_FUNCTION.md`** — concise implementation guidance for instrumenting the container-image function without changing its package type.
+3. **`VALIDATION.md`** — a post-deployment checklist covering functional behavior, telemetry correctness, duplicate initialization, and cold-start impact.
 
 Use deployment parameters or explicit placeholders where a current region/runtime/architecture-specific layer ARN or a secret-backed value must be resolved outside the generated files.

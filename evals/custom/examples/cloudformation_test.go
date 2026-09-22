@@ -41,7 +41,14 @@ Resources:
 }
 
 func TestValidateCloudFormationLambdaLayers(t *testing.T) {
-	good := `AWSTemplateFormatVersion: '2010-09-09'
+	tests := []struct {
+		name    string
+		content string
+		wantErr string
+	}{
+		{
+			name: "zip function with literal layers",
+			content: `AWSTemplateFormatVersion: '2010-09-09'
 Resources:
   Fn:
     Type: AWS::Lambda::Function
@@ -52,12 +59,11 @@ Resources:
         - arn:aws:lambda:eu-west-1:123456789012:layer:otel:1
   Extension:
     Type: Vendor::Observability::Extension
-`
-	if err := ValidateCloudFormation(good); err != nil {
-		t.Fatalf("valid zip template rejected: %v", err)
-	}
-
-	intrinsicLayers := `Resources:
+`,
+		},
+		{
+			name: "SAM function with intrinsic layers",
+			content: `Resources:
   Fn:
     Type: AWS::Serverless::Function
     Properties:
@@ -65,12 +71,78 @@ Resources:
       Handler: index.handler
       Layers:
         Ref: OTelLayers
-`
-	if err := ValidateCloudFormation(intrinsicLayers); err != nil {
-		t.Fatalf("intrinsic Layers expression rejected: %v", err)
-	}
-
-	imageWithLayers := `Resources:
+`,
+		},
+		{
+			name: "image function without layers",
+			content: `Resources:
+  Fn:
+    Type: AWS::Lambda::Function
+    Properties:
+      PackageType: Image
+      Code:
+        ImageUri: example.invalid/repo/image:TEST-1
+`,
+		},
+		{
+			name: "intrinsic package type remains unknown",
+			content: `Resources:
+  Fn:
+    Type: AWS::Lambda::Function
+    Properties:
+      PackageType:
+        Ref: FunctionPackageType
+      Layers:
+        Ref: OTelLayers
+`,
+		},
+		{
+			name: "LanguageExtensions loop in Resources",
+			content: `Transform: AWS::LanguageExtensions
+Resources:
+  Fn::ForEach::Functions:
+    - FunctionName
+    - [Checkout, Reconcile]
+    - ${FunctionName}Function:
+        Type: AWS::Serverless::Function
+        Properties:
+          Runtime: nodejs22.x
+          Handler: index.handler
+`,
+		},
+		{
+			name:    "missing Resources",
+			content: "AWSTemplateFormatVersion: '2010-09-09'\n",
+			wantErr: "missing Resources",
+		},
+		{
+			name: "resource is not a mapping",
+			content: `Resources:
+  Fn: invalid
+`,
+			wantErr: "must be a mapping",
+		},
+		{
+			name: "Lambda properties are missing",
+			content: `Resources:
+  Fn:
+    Type: AWS::Lambda::Function
+`,
+			wantErr: "missing Properties",
+		},
+		{
+			name: "invalid literal package type",
+			content: `Resources:
+  Fn:
+    Type: AWS::Lambda::Function
+    Properties:
+      PackageType: Archive
+`,
+			wantErr: "invalid literal PackageType",
+		},
+		{
+			name: "image function with layers",
+			content: `Resources:
   Fn:
     Type: AWS::Lambda::Function
     Properties:
@@ -79,10 +151,31 @@ Resources:
         ImageUri: example.invalid/repo/image:TEST-1
       Layers:
         - arn:aws:lambda:eu-west-1:123456789012:layer:otel:1
-`
-	err := ValidateCloudFormation(imageWithLayers)
-	if err == nil || !strings.Contains(err.Error(), "cannot use Layers") {
-		t.Fatalf("image-with-layers error = %v, want cannot use Layers", err)
+`,
+			wantErr: "cannot use Layers",
+		},
+		{
+			name: "malformed ForEach",
+			content: `Transform: AWS::LanguageExtensions
+Resources:
+  Fn::ForEach::Functions:
+    - FunctionName
+    - [Checkout, Reconcile]
+`,
+			wantErr: "must contain an identifier, collection, and output fragment",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateCloudFormation(tt.content)
+			if tt.wantErr == "" && err != nil {
+				t.Fatalf("valid template rejected: %v", err)
+			}
+			if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+				t.Fatalf("error = %v, want substring %q", err, tt.wantErr)
+			}
+		})
 	}
 }
 
